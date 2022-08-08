@@ -4,25 +4,21 @@ Created on Wed Aug  3 11:32:29 2022
 
 @author: carlo
 """
-# =============================================================================
-# 
-# import sys
-# import subprocess
-# import pkg_resources
-# 
-# required = {'pandas', 'numpy', 'selenium', 'datetime', 'streamlit-aggrid'}
-# installed = {pkg.key for pkg in pkg_resources.working_set}
-# missing = required - installed
-# 
-# if missing:
-#     python = sys.executable
-#     subprocess.check_call([python, '-m', 'pip', 'install', *missing], stdout=subprocess.DEVNULL)
-# 
-# =============================================================================
+import sys
+import subprocess
+import pkg_resources
+
+required = {'pandas', 'numpy', 'selenium', 'datetime', 'streamlit-aggrid'}
+installed = {pkg.key for pkg in pkg_resources.working_set}
+missing = required - installed
+
+if missing:
+    python = sys.executable
+    subprocess.check_call([python, '-m', 'pip', 'install', *missing], stdout=subprocess.DEVNULL)
 
 import pandas as pd
 import numpy as np
-import re
+import re, os
 from datetime import datetime
 
 import streamlit as st
@@ -133,7 +129,7 @@ def cleanup_specs(specs, col):
         return specs.split('/')[0]
     else:
         if col == 'width':
-            return specs.split('/')[0]
+            return specs.split('/')[0][-3:]
         elif col == 'aspect_ratio':
             if specs.split('/')[1] == '0' or specs.split('/')[1] == '':
                 return 'R'
@@ -189,7 +185,6 @@ def gulong_scraper(_driver, xpath_prod):
     # calculate number of pages
     last_page = int(np.ceil(int(num_items)/24))
     tire_list, price_list, info_list = [], [], []
-    st.write('Loading Gulong.ph products..')
     mybar = st.progress(0)
     # iterate over product pages
     for page in range(last_page):
@@ -200,6 +195,7 @@ def gulong_scraper(_driver, xpath_prod):
                         [tire_list, price_list, info_list], xpath_prod['gulong'])
         # update progress bar
         mybar.progress(round((page+1)/last_page, 2))
+        driver.implicitly_wait(2)
     # remove progress bar
     mybar.empty()
     # create dataframe
@@ -222,6 +218,20 @@ def gulong_scraper(_driver, xpath_prod):
     # drop columns
     df_gulong.drop(columns=['price','specs'], inplace=True)  
     return df_gulong
+
+@st.experimental_memo(suppress_st_warning=True)
+def get_gulong_data():
+    df = pd.read_csv('http://app.redash.licagroup.ph/api/queries/130/results.csv?api_key=JFYeyFN7WwoJbUqf8eyS0388PFE7AiG1JWa6y9Zp')
+    df = df[df.is_model_active==1].rename(columns={'pattern' : 'name',
+                                                   'make' : 'brand',
+                                                   'section_width':'width', 
+                                                   'rim_size':'diameter', 
+                                                   'price' : 'price_gulong'})
+    df.loc[:, 'aspect_ratio'] = df.apply(lambda x: cleanup_specs(x['model'], 'aspect_ratio'), axis=1)
+    df.loc[:, 'diameter'] = df.apply(lambda x: x['diameter'][1:], axis=1)
+    df.loc[:,'correct_specs'] = df.apply(lambda x: combine_specs(x), axis=1)
+    df = df[['name', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs', 'price_gulong']]
+    return df
 
 @st.experimental_memo(suppress_st_warning=True)
 def gogulong_scraper(_driver, xpath_prod, df_gulong):
@@ -257,15 +267,15 @@ def gogulong_scraper(_driver, xpath_prod, df_gulong):
         print ('Specs: ', spec)
         # open web page
         url_page = 'https://gogulong.ph/search-results?width='+ w +'&aspectRatio=' + ar + '&rimDiameter=' + d
-        _driver.get(url_page)
+        driver.get(url_page)
         
-        err_message = len(_driver.find_elements(By.XPATH, '//div[@class="searchResultEmptyMessage"]'))
+        err_message = len(driver.find_elements(By.XPATH, '//div[@class="searchResultEmptyMessage"]'))
         specs_err_dict[spec] = err_message
         print ('Error message: {}'.format(err_message))
+        driver.implicitly_wait(3)
         if err_message == 0:
             # check number of items
-            _driver.implicitly_wait(5)
-            num_items = get_num_items(_driver, '//div[@class="subtitle-2 font-weight-medium px-1 pb-2 grey--text col-md-7 col-12"]//span', site='gogulong')
+            num_items = get_num_items(driver, '//div[@class="subtitle-2 font-weight-medium px-1 pb-2 grey--text col-md-7 col-12"]//span', site='gogulong')
             # page format changes depending on the number of products included
             print ('{} items on this page: '.format(num_items))
             if int(num_items) >= 5:
@@ -281,11 +291,11 @@ def gogulong_scraper(_driver, xpath_prod, df_gulong):
                     tire_list, price_list, info_list = scrape_data(driver, [tire_list, price_list, info_list], xpath_prod['gogulong'], site='gogulong')
                     # go to next page if available
                     if page < (int(np.ceil(int(num_items)/12))-1):
-                            page_button = _driver.find_element(By.XPATH, '//li//button[@aria-label="Goto Page {}"]'.format(page+2))
-                            _driver.execute_script("arguments[0].click();", page_button)
+                            page_button = driver.find_element(By.XPATH, '//li//button[@aria-label="Goto Page {}"]'.format(page+2))
+                            driver.execute_script("arguments[0].click();", page_button)
     
             else:
-                tire_list, price_list, info_list = scrape_data(_driver, [tire_list, price_list, info_list], xpath_prod['gogulong'], site='gogulong')
+                tire_list, price_list, info_list = scrape_data(driver, [tire_list, price_list, info_list], xpath_prod['gogulong'], site='gogulong')
             # update progress bar
         else:
             continue
@@ -380,9 +390,12 @@ if __name__ == '__main__':
     st.markdown('''
                 This app collects product info from Gulong.ph and other competitor platforms.
                 ''')
-    driver = Chrome(options=options)
+    driver_path = os.getcwd() + '\\chromedriver'
+    driver = Chrome(driver_path, options=options)
+    #driver = Chrome(options=options)
     # gulong scraper
-    df_gulong = gulong_scraper(driver, xpath_prod)
+    #df_gulong = gulong_scraper(driver, xpath_prod)
+    df_gulong = get_gulong_data()
     st.write('Found {} Gulong.ph products.'.format(len(df_gulong)))  
     show_table(df_gulong[['name', 'brand', 'width', 'aspect_ratio', 
                           'diameter', 'price_gulong']])
