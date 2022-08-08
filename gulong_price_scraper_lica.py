@@ -129,7 +129,7 @@ def cleanup_specs(specs, col):
         return specs.split('/')[0]
     else:
         if col == 'width':
-            return specs.split('/')[0][-3:]
+            return specs.split('/')[0][-3:].split('X')[0]
         elif col == 'aspect_ratio':
             if specs.split('/')[1] == '0' or specs.split('/')[1] == '':
                 return 'R'
@@ -390,9 +390,9 @@ if __name__ == '__main__':
     st.markdown('''
                 This app collects product info from Gulong.ph and other competitor platforms.
                 ''')
-    driver_path = os.getcwd() + '\\chromedriver'
-    driver = Chrome(driver_path, options=options)
-    #driver = Chrome(options=options)
+    #driver_path = os.getcwd() + '\\chromedriver'
+    #driver = Chrome(driver_path, options=options)
+    driver = Chrome(options=options)
     # gulong scraper
     #df_gulong = gulong_scraper(driver, xpath_prod)
     df_gulong = get_gulong_data()
