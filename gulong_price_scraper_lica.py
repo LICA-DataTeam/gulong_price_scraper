@@ -227,7 +227,8 @@ def get_gulong_data():
                                                    'section_width':'width', 
                                                    'rim_size':'diameter', 
                                                    'price' : 'price_gulong'})
-    df.loc[:, 'aspect_ratio'] = df.apply(lambda x: cleanup_specs(x['model'], 'aspect_ratio'), axis=1)
+    df.loc[:, 'width'] = df.apply(lambda x: str(x['width']).split('X')[0], axis=1)
+    #df.loc[:, 'aspect_ratio'] = df.apply(lambda x: cleanup_specs(x['model'], 'aspect_ratio'), axis=1)
     df.loc[:, 'diameter'] = df.apply(lambda x: x['diameter'][1:], axis=1)
     df.loc[:,'correct_specs'] = df.apply(lambda x: combine_specs(x), axis=1)
     df = df[['name', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs', 'price_gulong']]
