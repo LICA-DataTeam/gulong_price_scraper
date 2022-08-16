@@ -18,6 +18,7 @@ if missing:
 
 import pandas as pd
 import numpy as np
+from decimal import Decimal
 import re, os
 from datetime import datetime
 
@@ -58,10 +59,13 @@ def get_num_items(driver, xpath, site = 'gulong'):
     '''
     total_items_text = driver.find_elements(By.XPATH, xpath)
     total_items_list = [items.text for items in total_items_text]
-    if site=='gulong':
-        total_items = [item for item in total_items_list[1].split(' ') if item.isdigit()][-1]
-    elif site=='gogulong':
-        total_items = [item for item in total_items_list[0].split(' ') if item.isdigit()][0]
+    try: 
+        if site=='gulong':
+            total_items = [item for item in total_items_list[1].split(' ') if item.isdigit()][-1]
+        elif site=='gogulong':
+            total_items = [item for item in total_items_list[0].split(' ') if item.isdigit()][0]
+    except:
+        total_items = 0
     return total_items
 
 
@@ -124,6 +128,11 @@ def cleanup_specs(specs, col):
         Corresponding string value in specs to "col"
 
     '''
+    error_aspect_ratio = {'0.': '10.5',
+                          '2.': '12.5',
+                          '3.': '13.5',
+                          '5.': '15.5'}
+    
     specs_len = len(specs.split('/'))
     if specs_len == 1:
         return specs.split('/')[0]
@@ -131,10 +140,15 @@ def cleanup_specs(specs, col):
         if col == 'width':
             return specs.split('/')[0][-3:].split('X')[0]
         elif col == 'aspect_ratio':
-            if specs.split('/')[1] == '0' or specs.split('/')[1] == '':
-                return 'R'
+            if 'X' in specs:
+                return specs.split('X')[1].split('/')[0]
             else:
-                return specs.split('/')[1]
+                if specs.split('/')[1] == '0' or specs.split('/')[1] == '':
+                    return 'R'
+                elif specs.split('/')[1] in error_aspect_ratio.keys():
+                    return error_aspect_ratio[specs.split('/')[1]]
+                else:
+                    return specs.split('/')[1]
         elif col == 'diameter':
             return specs.split('/')[2][1:3]
         else:
@@ -154,8 +168,11 @@ def combine_specs(row):
     string
         joined corrected specs info
 
-    '''
-    return '/'.join([row['width'], row['aspect_ratio'], row['diameter']])
+    '''       
+    if '.' in row['aspect_ratio']:
+        return '/'.join([str(row['width']), str(float(row['aspect_ratio'])), str(row['diameter'])])
+    else:
+        return '/'.join([str(row['width']), str(row['aspect_ratio']), str(row['diameter'])])
 
 @st.experimental_memo(suppress_st_warning=True)
 def gulong_scraper(_driver, xpath_prod):
@@ -219,6 +236,114 @@ def gulong_scraper(_driver, xpath_prod):
     df_gulong.drop(columns=['price','specs'], inplace=True)  
     return df_gulong
 
+def fix_diameter(d):
+    '''
+    Fix diameter values
+    
+    Parameters
+    ----------
+    d: string
+        diameter values in string format
+        
+    Returns:
+    --------
+    d: string
+        fixed diameter values
+    
+    '''
+    if len(d.split('R')) == 1:
+        if len(d.split('R')[0].split('C')) == 1:
+            return str(d)
+        else:
+            return d.split('R')[0].split('C')[0]
+    else:
+        return d.split('R')[1].split('C')[0]
+
+            
+
+def fix_names(name):
+    '''
+    Fix product names to match competitor names
+    
+    Parameters
+    ----------
+    name: str
+        input name string
+    
+    Returns
+    -------
+    name: str
+        fixed names as UPPERCASE
+    '''
+    change_name_dict = {'OPAT': 'OPEN COUNTRY AT',
+                        'OPMT': 'OPEN COUNTRY MT'}
+    
+    if re.search('TRANSIT.*ARZ.?6-X', name):
+        return re.sub('TRANSIT.*ARZ.?6-X', 'TRANSITO ARZ6-X', name)
+    elif 1:
+        try:  
+            key = next(key for key in change_name_dict.keys() if key in name)
+            if name.split(key)[1] == '':
+                return change_name_dict[key]
+            else:
+                return ' '.join([change_name_dict[key], name.split(key)[1]])
+        except:
+            return name.upper()
+    else:
+        return name.upper()
+
+@st.experimental_memo
+def remove_exponent(num):
+    '''
+    Removes unnecessary zeros from decimals
+
+    Parameters
+    ----------
+    num : Decimal(number)
+        number applied with Decimal function (see import decimal from Decimal)
+
+    Returns
+    -------
+    number: Decimal
+        Fixed number in Decimal form
+
+    '''
+    return num.to_integral() if num == num.to_integral() else num.normalize()
+
+@st.experimental_memo
+def fix_aspect_ratio(ar):
+    '''
+    Fix raw aspect ratio data
+    
+    Parameters
+    ----------
+    ar: float or string
+        input raw aspect ratio data
+        
+    Returns
+    -------
+    ar: string
+        fixed aspect ratio data in string format for combine_specs
+    
+    '''
+    error_aspect_ratio = {'.5' : '9.5',
+                          '0.': '10.5',
+                          '2.': '12.5',
+                          '3.': '13.5',
+                          '5.': '15.5'}
+    
+    if str(ar) == '0' or str(ar) == 'R1':
+        return 'R'
+    elif np.isnan(float(ar)):
+        return 'R'
+    elif str(float(ar)).isnumeric():
+        return str(ar)
+    elif str(ar) in error_aspect_ratio.keys():
+        return error_aspect_ratio[str(ar)]
+    else:
+        return str(remove_exponent(Decimal(str(ar))))
+    
+
 @st.experimental_memo(suppress_st_warning=True)
 def get_gulong_data():
     df = pd.read_csv('http://app.redash.licagroup.ph/api/queries/130/results.csv?api_key=JFYeyFN7WwoJbUqf8eyS0388PFE7AiG1JWa6y9Zp')
@@ -226,12 +351,15 @@ def get_gulong_data():
                                                    'make' : 'brand',
                                                    'section_width':'width', 
                                                    'rim_size':'diameter', 
-                                                   'price' : 'price_gulong'})
+                                                   'price' : 'price_gulong'}).reset_index()
+    
     df.loc[:, 'width'] = df.apply(lambda x: str(x['width']).split('X')[0], axis=1)
-    #df.loc[:, 'aspect_ratio'] = df.apply(lambda x: cleanup_specs(x['model'], 'aspect_ratio'), axis=1)
-    df.loc[:, 'diameter'] = df.apply(lambda x: x['diameter'][1:], axis=1)
-    df.loc[:,'correct_specs'] = df.apply(lambda x: combine_specs(x), axis=1)
-    df = df[['name', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs', 'price_gulong']]
+    df.loc[:, 'aspect_ratio'] = df.apply(lambda x: fix_aspect_ratio(x['aspect_ratio']), axis=1)
+    
+    df.loc[:, 'diameter'] = df.apply(lambda x: fix_diameter(x['diameter']), axis=1)
+    df.loc[:, 'correct_specs'] = df.apply(lambda x: combine_specs(x), axis=1)
+    df.loc[:, 'name'] = df.apply(lambda x: fix_names(x['name']), axis=1)
+    df = df[['name', 'model', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs', 'price_gulong']]
     return df
 
 @st.experimental_memo(suppress_st_warning=True)
@@ -258,23 +386,28 @@ def gogulong_scraper(_driver, xpath_prod, df_gulong):
     
     print ('Starting scraping for GoGulong.ph')
     tire_list, price_list, info_list = [], [], []
-    # check if error message for page
-    st.write('Scraping competitor prices..')
     mybar2 = st.progress(0)
     specs_err_dict = {}
-    for n, spec in enumerate(np.sort(df_gulong.loc[:,'correct_specs'].unique())):
+    # filter out unnecessary specs
+    correct_specs = [cs for cs in np.sort(df_gulong.loc[:, 'correct_specs'].unique()) if float(cs.split('/')[0]) > 27]
+    # iterate over all viable specs
+    for n, spec in enumerate(correct_specs):
+        
         # obtain specs
         w, ar, d = spec.split('/')
         print ('Specs: ', spec)
+        
         # open web page
         url_page = 'https://gogulong.ph/search-results?width='+ w +'&aspectRatio=' + ar + '&rimDiameter=' + d
         driver.get(url_page)
         
+        # check if error message for page
         err_message = len(driver.find_elements(By.XPATH, '//div[@class="searchResultEmptyMessage"]'))
         specs_err_dict[spec] = err_message
         print ('Error message: {}'.format(err_message))
-        driver.implicitly_wait(3)
+       
         if err_message == 0:
+            driver.implicitly_wait(3)
             # check number of items
             num_items = get_num_items(driver, '//div[@class="subtitle-2 font-weight-medium px-1 pb-2 grey--text col-md-7 col-12"]//span', site='gogulong')
             # page format changes depending on the number of products included
@@ -394,8 +527,6 @@ if __name__ == '__main__':
     #driver_path = os.getcwd() + '\\chromedriver'
     #driver = Chrome(driver_path, options=options)
     driver = Chrome(options=options)
-    # gulong scraper
-    #df_gulong = gulong_scraper(driver, xpath_prod)
     df_gulong = get_gulong_data()
     st.write('Found {} Gulong.ph products.'.format(len(df_gulong)))  
     show_table(df_gulong[['name', 'brand', 'width', 'aspect_ratio', 
@@ -408,13 +539,11 @@ if __name__ == '__main__':
         key='download-gulong-csv'
         )
     
-    driver.implicitly_wait(3)
-    
-    #gogulong scraper
+    # #gogulong scraper
     df_gogulong, err_dict = gogulong_scraper(driver, xpath_prod, df_gulong)
     # merge/get intersection of product lists
     df_merged = get_intersection(df_gulong, df_gogulong)
-    # close driver
+    # # close driver
     driver.quit()
     
     st.markdown('''
@@ -428,14 +557,14 @@ if __name__ == '__main__':
         st.session_state.last_update = {'2022-08-05' : df_merged}
     # download csv
     st.download_button(label ="Download", data = convert_csv(df_merged), 
-                       file_name = "gulong_prices_compare.csv", key='download-merged-csv')
+                        file_name = "gulong_prices_compare.csv", key='download-merged-csv')
     
     st.info('Last updated: {}'.format(sorted(st.session_state.last_update.keys())[-1]))
     
     # st.session_state
     df_file_date = st.selectbox('To download previous versions, select the date and press download.',
-                 options = np.asarray(sorted(st.session_state.last_update.keys())),
-                 key='last_update_date_select')
+                  options = np.asarray(sorted(st.session_state.last_update.keys())),
+                  key='last_update_date_select')
     
     st.download_button(
         label ="Download",
