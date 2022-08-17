@@ -4,17 +4,6 @@ Created on Wed Aug  3 11:32:29 2022
 
 @author: carlo
 """
-import sys
-import subprocess
-import pkg_resources
-
-required = {'pandas', 'numpy', 'selenium', 'datetime', 'streamlit-aggrid'}
-installed = {pkg.key for pkg in pkg_resources.working_set}
-missing = required - installed
-
-if missing:
-    python = sys.executable
-    subprocess.check_call([python, '-m', 'pip', 'install', *missing], stdout=subprocess.DEVNULL)
 
 import pandas as pd
 import numpy as np
@@ -27,7 +16,6 @@ from selenium.webdriver import Chrome
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from st_aggrid import GridOptionsBuilder, AgGrid
-st.set_page_config(page_icon=":chart_with_upwards_trend:", page_title="Gulong Price Comparison")
 
 # to run selenium in headless mode (no user interface/does not open browser)
 options = Options()
@@ -350,14 +338,14 @@ def get_gulong_data():
                                                    'rim_size':'diameter', 
                                                    'price' : 'price_gulong'}).reset_index()
     
-    df.loc[:, 'raw_dims'] = df.apply(lambda x: '/'.join(x['width'], x['aspect_ratio'], x['diameter']), axis=1)
+    df.loc[:, 'raw_dims'] = df.apply(lambda x: '/'.join([str(x['width']), str(x['aspect_ratio']), str(x['diameter'])]), axis=1)
     df.loc[:, 'width'] = df.apply(lambda x: str(x['width']).split('X')[0], axis=1)
     df.loc[:, 'aspect_ratio'] = df.apply(lambda x: fix_aspect_ratio(x['aspect_ratio']), axis=1)
     
     df.loc[:, 'diameter'] = df.apply(lambda x: fix_diameter(x['diameter']), axis=1)
     df.loc[:, 'correct_specs'] = df.apply(lambda x: combine_specs(x), axis=1)
     df.loc[:, 'name'] = df.apply(lambda x: fix_names(x['name']), axis=1)
-    df.loc[:, 'sku_name'] = df.apply(lambda x: ' '.join(x['brand'], x['raw_dims'], x['name']), axis=1)
+    df.loc[:, 'sku_name'] = df.apply(lambda x: ' '.join([x['brand'], x['raw_dims'], x['name']]), axis=1)
     df = df[['sku_name', 'price_gulong', 'name', 'model', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs']]
     return df
 
