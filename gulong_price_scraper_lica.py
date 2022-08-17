@@ -260,7 +260,6 @@ def fix_diameter(d):
         return d.split('R')[1].split('C')[0]
 
             
-
 def fix_names(name):
     '''
     Fix product names to match competitor names
@@ -292,7 +291,6 @@ def fix_names(name):
     else:
         return name.upper()
 
-@st.experimental_memo
 def remove_exponent(num):
     '''
     Removes unnecessary zeros from decimals
@@ -310,7 +308,6 @@ def remove_exponent(num):
     '''
     return num.to_integral() if num == num.to_integral() else num.normalize()
 
-@st.experimental_memo
 def fix_aspect_ratio(ar):
     '''
     Fix raw aspect ratio data
@@ -353,13 +350,15 @@ def get_gulong_data():
                                                    'rim_size':'diameter', 
                                                    'price' : 'price_gulong'}).reset_index()
     
+    df.loc[:, 'raw_dims'] = df.apply(lambda x: '/'.join(x['width'], x['aspect_ratio'], x['diameter']), axis=1)
     df.loc[:, 'width'] = df.apply(lambda x: str(x['width']).split('X')[0], axis=1)
     df.loc[:, 'aspect_ratio'] = df.apply(lambda x: fix_aspect_ratio(x['aspect_ratio']), axis=1)
     
     df.loc[:, 'diameter'] = df.apply(lambda x: fix_diameter(x['diameter']), axis=1)
     df.loc[:, 'correct_specs'] = df.apply(lambda x: combine_specs(x), axis=1)
     df.loc[:, 'name'] = df.apply(lambda x: fix_names(x['name']), axis=1)
-    df = df[['name', 'model', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs', 'price_gulong']]
+    df.loc[:, 'sku_name'] = df.apply(lambda x: ' '.join(x['brand'], x['raw_dims'], x['name']), axis=1)
+    df = df[['sku_name', 'price_gulong', 'name', 'model', 'brand', 'width', 'aspect_ratio', 'diameter', 'correct_specs']]
     return df
 
 @st.experimental_memo(suppress_st_warning=True)
@@ -467,10 +466,10 @@ def get_intersection(df_gulong, df_gogulong):
     Returns
     -------
     '''
-    left_cols = ['name', 'brand', 'price_gulong', 'correct_specs']
+    left_cols = ['sku_name', 'name', 'brand', 'price_gulong', 'correct_specs']
     right_cols = ['name', 'price_gogulong', 'correct_specs', 'ply']
     df_merged = pd.merge(df_gulong[left_cols], df_gogulong[right_cols], how='left', left_on=['name', 'correct_specs'], right_on=['name', 'correct_specs'])
-    df_merged = df_merged[['name', 'brand', 'correct_specs', 'price_gulong', 'price_gogulong', 'ply']]
+    df_merged = df_merged[['sku_name', 'name', 'brand', 'correct_specs', 'price_gulong', 'price_gogulong', 'ply']]
     df_merged = df_merged[df_merged['price_gogulong'].isnull()==False].sort_values('name').reset_index(drop=True)
 
     return df_merged
